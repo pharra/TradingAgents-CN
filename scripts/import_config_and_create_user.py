@@ -144,7 +144,7 @@ def convert_to_bson(data: Any) -> Any:
         return data
 
 
-def load_export_file(file_path: str) -> Dict[str, Any]:
+def load_export_file(file_path: str, exit_on_error: bool = True) -> Dict[str, Any]:
     """加载导出的 JSON 文件"""
     print(f"\n📂 加载导出文件: {file_path}")
     
@@ -153,8 +153,11 @@ def load_export_file(file_path: str) -> Dict[str, Any]:
             data = json.load(f)
         
         if "export_info" not in data or "data" not in data:
-            print("❌ 错误: 文件格式不正确，缺少 export_info 或 data 字段")
-            sys.exit(1)
+            msg = "❌ 错误: 文件格式不正确，缺少 export_info 或 data 字段"
+            print(msg)
+            if exit_on_error:
+                sys.exit(1)
+            raise ValueError(msg)
         
         export_info = data["export_info"]
         print(f"✅ 文件加载成功")
@@ -165,14 +168,109 @@ def load_export_file(file_path: str) -> Dict[str, Any]:
         return data
     
     except FileNotFoundError:
-        print(f"❌ 错误: 文件不存在: {file_path}")
-        sys.exit(1)
+        msg = f"❌ 错误: 文件不存在: {file_path}"
+        print(msg)
+        if exit_on_error:
+            sys.exit(1)
+        raise FileNotFoundError(msg)
     except json.JSONDecodeError as e:
-        print(f"❌ 错误: JSON 解析失败: {e}")
-        sys.exit(1)
+        msg = f"❌ 错误: JSON 解析失败: {e}"
+        print(msg)
+        if exit_on_error:
+            sys.exit(1)
+        raise ValueError(msg)
     except Exception as e:
-        print(f"❌ 错误: 加载文件失败: {e}")
-        sys.exit(1)
+        msg = f"❌ 错误: 加载文件失败: {e}"
+        print(msg)
+        if exit_on_error:
+            sys.exit(1)
+        raise RuntimeError(msg)
+
+
+def _log_with_logger(logger: Any, level: str, message: str) -> None:
+    """统一日志输出：优先使用 logger，否则回退 print"""
+    if logger:
+        log_func = getattr(logger, level, None)
+        if callable(log_func):
+            log_func(message)
+            return
+    print(message)
+
+
+def _find_default_export_file(base_root: Optional[Path] = None) -> Path:
+    """查找 install 目录下最新的 database_export_config_*.json 文件（与 CLI 默认行为一致）"""
+    root = base_root or project_root
+    install_dir = root / "install"
+
+    if not install_dir.exists():
+        raise FileNotFoundError("install 目录不存在")
+
+    config_files = list(install_dir.glob("database_export_config_*.json"))
+    if not config_files:
+        raise FileNotFoundError("install 目录中未找到配置文件 (database_export_config_*.json)")
+
+    return sorted(config_files)[-1]
+
+
+def _is_database_uninitialized(db: Any) -> bool:
+    """判断数据库是否未初始化（关键集合为空）"""
+    try:
+        system_config_count = db.system_configs.count_documents({})
+        user_count = db.users.count_documents({})
+        return system_config_count == 0 or user_count == 0
+    except Exception:
+        # 保守策略：无法判断时按未初始化处理，让导入逻辑兜底
+        return True
+
+
+def auto_initialize_if_needed(
+    mongo_uri: str,
+    db_name: str = DB_NAME,
+    base_root: Optional[Path] = None,
+    logger: Any = None
+) -> bool:
+    """当数据库未初始化时自动导入配置并创建默认管理员（与脚本默认行为一致）。
+
+    Returns:
+        True: 执行了初始化
+        False: 已初始化，跳过
+    """
+    _log_with_logger(logger, "info", "🔎 检查数据库初始化状态...")
+
+    client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+    try:
+        client.admin.command('ping')
+        db = client[db_name]
+
+        _log_with_logger(logger, "info", "🔎 检查数据库初始化状态...")
+        if not _is_database_uninitialized(db):
+            _log_with_logger(logger, "info", "✅ 数据库已初始化，跳过自动初始化")
+            return False
+
+        _log_with_logger(logger, "warning", "⚠️ 检测到数据库未初始化，开始自动导入配置并创建管理员...")
+        export_file = _find_default_export_file(base_root)
+        _log_with_logger(logger, "info", f"📦 使用配置文件: {export_file}")
+
+        export_data = load_export_file(str(export_file), exit_on_error=False)
+        data = export_data["data"]
+
+        collections_to_import = [c for c in CONFIG_COLLECTIONS if c in data]
+        _log_with_logger(logger, "info", f"📋 准备导入 {len(collections_to_import)} 个集合")
+
+        for collection_name in collections_to_import:
+            documents = data.get(collection_name, [])
+            stats = import_collection(db, collection_name, documents, overwrite=True)
+            _log_with_logger(
+                logger,
+                "info",
+                f"✅ {collection_name}: 删除 {stats['deleted']}，插入 {stats['inserted']}"
+            )
+
+        create_default_admin(db, overwrite=True)
+        _log_with_logger(logger, "info", "🎉 数据库自动初始化完成")
+        return True
+    finally:
+        client.close()
 
 
 def connect_mongodb(use_docker: bool = True, config: dict = None) -> MongoClient:

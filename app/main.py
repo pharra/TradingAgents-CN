@@ -229,6 +229,19 @@ async def lifespan(app: FastAPI):
 
     await init_db()
 
+    # 数据库首次启动自动初始化（导入配置并创建默认管理员）
+    try:
+        from scripts.import_config_and_create_user import auto_initialize_if_needed
+        await asyncio.to_thread(
+            auto_initialize_if_needed,
+            settings.MONGO_URI,
+            settings.MONGODB_DATABASE,
+            Path(__file__).parent.parent,
+            logger
+        )
+    except Exception as e:
+        logger.warning(f"⚠️  数据库自动初始化失败（已忽略）: {e}")
+
     #  配置桥接：将统一配置写入环境变量，供 TradingAgents 核心库使用
     try:
         from app.core.config_bridge import bridge_config_to_env
