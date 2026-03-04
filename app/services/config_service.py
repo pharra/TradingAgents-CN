@@ -1242,6 +1242,9 @@ class ConfigService:
                     import tushare as ts
                     ts.set_token(api_key)
                     pro = ts.pro_api()
+                    tushare_url = (ds_config.endpoint or os.getenv('TUSHARE_URL') or 'http://api.tushare.pro').strip()
+                    pro._DataApi__http_url = tushare_url
+                    logger.info(f"🌐 [TEST] Using Tushare URL via private attribute: {tushare_url}")
                     # 获取交易日历（轻量级测试）
                     df = pro.trade_cal(exchange='SSE', start_date='20240101', end_date='20240101')
 

@@ -178,6 +178,8 @@ def test_column_mapping_in_real_data():
         print(f"🔍 直接调用Tushare API...")
         ts.set_token(tushare_token)
         pro = ts.pro_api()
+        tushare_url = os.getenv('TUSHARE_URL', 'http://api.tushare.pro').strip()
+        pro._DataApi__http_url = tushare_url
         
         # 获取原始数据
         raw_data = pro.daily(ts_code='000001.SZ', start_date='20250720', end_date='20250726')

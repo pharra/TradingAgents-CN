@@ -148,6 +148,8 @@ def test_tushare_hk():
         
         ts.set_token(tushare_token)
         pro = ts.pro_api()
+        tushare_url = os.getenv('TUSHARE_URL', 'http://api.tushare.pro').strip()
+        pro._DataApi__http_url = tushare_url
         
         # 测试港股基本信息
         print("\n📊 测试 hk_basic 接口:")

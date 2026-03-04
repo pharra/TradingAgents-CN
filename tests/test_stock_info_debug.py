@@ -51,6 +51,8 @@ def test_tushare_api_direct():
         
         ts.set_token(token)
         pro = ts.pro_api()
+        tushare_url = os.getenv('TUSHARE_URL', 'http://api.tushare.pro').strip()
+        pro._DataApi__http_url = tushare_url
         
         # 测试获取000858的信息
         print("🔄 测试获取000858.SZ的基本信息...")

@@ -183,6 +183,7 @@ def bridge_config_to_env():
                 # 🔥 优先级：数据库配置 > .env 文件（用户在 Web 后台修改后立即生效）
                 if ds_config.type.value == 'tushare':
                     existing_token = os.getenv('TUSHARE_TOKEN')
+                    existing_url = os.getenv('TUSHARE_URL')
 
                     # 优先使用数据库配置
                     if ds_config.api_key and not ds_config.api_key.startswith("your_"):
@@ -197,6 +198,17 @@ def bridge_config_to_env():
                     else:
                         logger.warning(f"  ⚠️  TUSHARE_TOKEN 在数据库和 .env 中都未配置有效值")
                         continue
+
+                    # Tushare URL（可选）：优先数据库 endpoint，其次 .env，最后保持默认
+                    if ds_config.endpoint:
+                        os.environ['TUSHARE_URL'] = ds_config.endpoint
+                        if existing_url and existing_url != ds_config.endpoint:
+                            logger.info(f"  ℹ️  已覆盖 .env 文件中的 TUSHARE_URL -> {ds_config.endpoint}")
+                        else:
+                            logger.info(f"  ✓ 使用 TUSHARE_URL: {ds_config.endpoint}")
+                    elif existing_url:
+                        logger.info(f"  ✓ 使用 .env 文件中的 TUSHARE_URL: {existing_url}")
+
                     bridged_count += 1
 
                 # FinnHub API Key
@@ -536,6 +548,7 @@ def clear_bridged_config():
         'TRADINGAGENTS_DEEP_MODEL',
         # 数据源 API 密钥
         'TUSHARE_TOKEN',
+        'TUSHARE_URL',
         'FINNHUB_API_KEY',
         # 系统配置
         'APP_TIMEZONE',
